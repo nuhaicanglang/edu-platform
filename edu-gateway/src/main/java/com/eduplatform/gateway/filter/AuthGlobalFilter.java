@@ -1,0 +1,120 @@
+package com.eduplatform.gateway.filter;
+
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.cloud.gateway.filter.GatewayFilterChain;
+import org.springframework.cloud.gateway.filter.GlobalFilter;
+import org.springframework.core.Ordered;
+import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.server.reactive.ServerHttpRequest;
+import org.springframework.http.server.reactive.ServerHttpResponse;
+import org.springframework.stereotype.Component;
+import org.springframework.util.AntPathMatcher;
+import org.springframework.web.server.ServerWebExchange;
+import reactor.core.publisher.Mono;
+
+import javax.crypto.SecretKey;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.List;
+
+/**
+ * 网关全局 JWT 认证过滤器
+ * <p>
+ * 拦截所有请求，对白名单以外的路径校验 JWT Token。
+ * 校验通过后将 userId、username、role 以 X-Header 形式透传给下游微服务。
+ * 白名单包括：登录、注册、文件服务、Swagger 文档等公开路径。
+ * </p>
+ */
+@Slf4j
+@Component
+public class AuthGlobalFilter implements GlobalFilter, Ordered {
+
+    /** 默认密钥（仅开发环境兜底使用，生产必须通过 JWT_SECRET 环境变量覆盖） */
+    private static final String DEFAULT_SECRET = "EduPlatformSecretKey2024ForJWTTokenGeneration!!";
+
+    /** 与 edu-common JwtUtils 保持一致的密钥解析逻辑 */
+    private static final String SECRET = resolveSecret();
+
+    private static final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
+
+    private static String resolveSecret() {
+        String s = System.getenv("JWT_SECRET");
+        if (s == null || s.isBlank()) s = System.getProperty("jwt.secret");
+        if (s == null || s.isBlank()) s = DEFAULT_SECRET;
+        return s;
+    }
+
+    /** 白名单路径 */
+    private static final List<String> WHITE_LIST = Arrays.asList(
+            "/api/auth/login",
+            "/api/auth/register",
+            "/api/auth/captcha",
+            "/api/system/files/**",
+            "/doc.html",
+            "/webjars/**",
+            "/v3/api-docs/**",
+            "/swagger-resources/**",
+            "/api/adapter/**"
+    );
+
+    @Override
+    public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        ServerHttpRequest request = exchange.getRequest();
+        String path = request.getURI().getPath();
+
+        // 白名单放行
+        for (String pattern : WHITE_LIST) {
+            if (PATH_MATCHER.match(pattern, path)) {
+                return chain.filter(exchange);
+            }
+        }
+
+        // 获取Token
+        String token = request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
+        if (token != null && token.startsWith("Bearer ")) {
+            token = token.substring(7);
+        }
+
+        if (token == null || token.isEmpty()) {
+            return unauthorized(exchange.getResponse(), "未提供认证令牌");
+        }
+
+        // 验证Token
+        try {
+            SecretKey key = Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
+            Claims claims = Jwts.parser().verifyWith(key).build()
+                    .parseSignedClaims(token).getPayload();
+
+            // 将用户信息传递到下游服务
+            ServerHttpRequest mutatedRequest = request.mutate()
+                    .header("X-User-Id", String.valueOf(claims.get("userId")))
+                    .header("X-User-Name", claims.getSubject())
+                    .header("X-User-Role", String.valueOf(claims.get("role")))
+                    .build();
+
+            return chain.filter(exchange.mutate().request(mutatedRequest).build());
+        } catch (Exception e) {
+            log.error("Token验证失败: {}", e.getMessage());
+            return unauthorized(exchange.getResponse(), "认证令牌无效或已过期");
+        }
+    }
+
+    private Mono<Void> unauthorized(ServerHttpResponse response, String message) {
+        response.setStatusCode(HttpStatus.UNAUTHORIZED);
+        response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+        String body = "{\"code\":401,\"msg\":\"" + message + "\",\"data\":null}";
+        DataBuffer buffer = response.bufferFactory().wrap(body.getBytes(StandardCharsets.UTF_8));
+        return response.writeWith(Mono.just(buffer));
+    }
+
+    @Override
+    public int getOrder() {
+        return -100;
+    }
+}

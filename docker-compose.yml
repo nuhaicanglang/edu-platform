@@ -1,0 +1,237 @@
+﻿version: '3.8'
+
+services:
+  # MySQL鏁版嵁搴?  mysql:
+    image: mysql:8.0
+    container_name: edu-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: your_password
+      MYSQL_DATABASE: edu_platform
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./sql/data.sql:/docker-entrypoint-initdb.d/02-data.sql
+    command: >-
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_general_ci
+      --innodb-buffer-pool-size=512M
+      --innodb-log-file-size=256M
+      --innodb-flush-log-at-trx-commit=2
+      --innodb-flush-method=O_DIRECT
+      --max-connections=300
+      --slow-query-log=ON
+      --long-query-time=1
+      --innodb-io-capacity=1000
+      --sort-buffer-size=4M
+      --join-buffer-size=4M
+      --tmp-table-size=64M
+      --max-heap-table-size=64M
+    networks:
+      - edu-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis缂撳瓨
+  redis:
+    image: redis:7-alpine
+    container_name: edu-redis
+    command: redis-server --requirepass your_password
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - edu-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "your_password", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Nacos娉ㄥ唽涓績/閰嶇疆涓績
+  nacos:
+    image: nacos/nacos-server:v2.3.0
+    container_name: edu-nacos
+    environment:
+      MODE: standalone
+      SPRING_DATASOURCE_PLATFORM: ""
+      JVM_XMS: 256m
+      JVM_XMX: 256m
+    ports:
+      - "8848:8848"
+      - "9848:9848"
+    networks:
+      - edu-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8848/nacos/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  # Elasticsearch (鐭ヨ瘑搴撴绱?
+  elasticsearch:
+    image: elasticsearch:8.11.0
+    container_name: edu-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms256m -Xmx256m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    networks:
+      - edu-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  # 缃戝叧鏈嶅姟
+  edu-gateway:
+    build:
+      context: ./edu-gateway
+      dockerfile: Dockerfile
+    container_name: edu-gateway
+    ports:
+      - "9000:9000"
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PWD: your_password
+      REDIS_HOST: redis
+      REDIS_PWD: your_password
+      NACOS_ADDR: nacos:8848
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+    networks:
+      - edu-network
+
+  # 璁よ瘉鏈嶅姟
+  edu-auth:
+    build:
+      context: ./edu-auth
+      dockerfile: Dockerfile
+    container_name: edu-auth
+    ports:
+      - "8081:8081"
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PWD: your_password
+      REDIS_HOST: redis
+      REDIS_PWD: your_password
+      NACOS_ADDR: nacos:8848
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+    networks:
+      - edu-network
+
+  # 鏁欏绠＄悊鏈嶅姟
+  edu-system:
+    build:
+      context: ./edu-system
+      dockerfile: Dockerfile
+    container_name: edu-system
+    ports:
+      - "8082:8082"
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PWD: your_password
+      REDIS_HOST: redis
+      REDIS_PWD: your_password
+      NACOS_ADDR: nacos:8848
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+    networks:
+      - edu-network
+
+  # AI Agent鏈嶅姟
+  edu-agent:
+    build:
+      context: ./edu-agent
+      dockerfile: Dockerfile
+    container_name: edu-agent
+    ports:
+      - "8083:8083"
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PWD: your_password
+      REDIS_HOST: redis
+      REDIS_PWD: your_password
+      NACOS_ADDR: nacos:8848
+      ES_URIS: http://elasticsearch:9200
+      LLM_PROVIDER: ${LLM_PROVIDER:-deepseek}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-sk-xxx}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-sk-xxx}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-your_deepseek_api_key}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - edu-network
+
+  # 鐭ヨ瘑搴撴湇鍔?  edu-knowledge:
+    build:
+      context: ./edu-knowledge
+      dockerfile: Dockerfile
+    container_name: edu-knowledge
+    ports:
+      - "8084:8084"
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PWD: your_password
+      REDIS_HOST: redis
+      REDIS_PWD: your_password
+      NACOS_ADDR: nacos:8848
+      ES_URIS: http://elasticsearch:9200
+    volumes:
+      - upload-data:/app/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+    networks:
+      - edu-network
+
+volumes:
+  mysql-data:
+  redis-data:
+  es-data:
+  upload-data:
+
+networks:
+  edu-network:
+    driver: bridge
+

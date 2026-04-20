@@ -1,0 +1,29 @@
+# Maven build output
+target/
+*.jar
+*.war
+*.class
+
+# Environment secrets - NEVER commit these
+.env
+
+# IDE files
+.idea/
+*.iml
+.vscode/
+
+# Node / Frontend
+node_modules/
+dist/
+.npm
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Upload files
+uploads/

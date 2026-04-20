@@ -1,0 +1,69 @@
+﻿server:
+  port: 8083
+
+spring:
+  application:
+    name: edu-agent
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/edu_platform?useUnicode=true&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PWD:your_password}
+    type: com.alibaba.druid.pool.DruidDataSource
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PWD:your_password}
+      database: 0
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 100MB
+  cloud:
+    nacos:
+      discovery:
+        enabled: true
+        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+      config:
+        enabled: false
+        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        file-extension: yml
+        import-check:
+          enabled: false
+  elasticsearch:
+    uris: ${ES_URIS:http://127.0.0.1:9200}
+
+mybatis-plus:
+  mapper-locations: classpath:mapper/**/*.xml
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+# LLM閰嶇疆 - 鏀寔澶氭ā鍨嬪垏鎹?llm:
+  provider: ${LLM_PROVIDER:deepseek}
+  openai:
+    api-key: ${OPENAI_API_KEY:sk-xxx}
+    base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
+    model: ${OPENAI_MODEL:gpt-4o}
+  dashscope:
+    api-key: ${DASHSCOPE_API_KEY:sk-xxx}
+    model: ${DASHSCOPE_MODEL:qwen-max}
+  deepseek:
+    api-key: ${DEEPSEEK_API_KEY:your_deepseek_api_key}
+    base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com/v1}
+    model: ${DEEPSEEK_MODEL:deepseek-chat}
+
+file:
+  upload:
+    path: ${FILE_UPLOAD_PATH:./uploads}
+
+logging:
+  level:
+    com.eduplatform: debug
+
+

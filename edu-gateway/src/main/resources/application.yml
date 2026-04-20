@@ -1,0 +1,60 @@
+﻿server:
+  port: 9000
+
+spring:
+  application:
+    name: edu-gateway
+  cloud:
+    nacos:
+      discovery:
+        enabled: true
+        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+      config:
+        enabled: false
+        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        file-extension: yml
+        import-check:
+          enabled: false
+    gateway:
+      httpclient:
+        response-timeout: 180s
+        connect-timeout: 10000
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOriginPatterns: "*"
+            allowedMethods: "*"
+            allowedHeaders: "*"
+            allowCredentials: true
+      routes:
+        - id: edu-auth
+          uri: lb://edu-auth
+          predicates:
+            - Path=/api/auth/**
+          filters:
+            - StripPrefix=1
+        - id: edu-system
+          uri: lb://edu-system
+          predicates:
+            - Path=/api/system/**
+          filters:
+            - StripPrefix=1
+        - id: edu-agent
+          uri: lb://edu-agent
+          predicates:
+            - Path=/api/agent/**
+          filters:
+            - StripPrefix=1
+        - id: edu-knowledge
+          uri: lb://edu-knowledge
+          predicates:
+            - Path=/api/knowledge/**
+          filters:
+            - StripPrefix=1
+
+logging:
+  level:
+    com.eduplatform: debug
+    org.springframework.cloud.gateway: info
+
+
