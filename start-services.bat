@@ -1,5 +1,17 @@
 @echo off
 chcp 65001 >nul
+
+echo Loading environment variables from .env...
+if exist "%~dp0.env" (
+    for /f "usebackq tokens=1,* delims==" %%A in ("%~dp0.env") do (
+        if not "%%A"=="" if not "%%A:~0,1%"=="#" set "%%A=%%B"
+    )
+    echo .env loaded successfully.
+) else (
+    echo [WARN] .env file not found. Using default placeholders - services may fail to connect.
+    echo        Please copy .env.example to .env and fill in your passwords.
+)
+
 echo ============================================
 echo  Step 1: Starting Docker middleware...
 echo ============================================

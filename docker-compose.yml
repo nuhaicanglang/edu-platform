@@ -1,11 +1,12 @@
 ﻿version: '3.8'
 
 services:
-  # MySQL鏁版嵁搴?  mysql:
+  # MySQL数据库
+  mysql:
     image: mysql:8.0
     container_name: edu-mysql
     environment:
-      MYSQL_ROOT_PASSWORD: your_password
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: edu_platform
       TZ: Asia/Shanghai
     ports:
@@ -37,11 +38,11 @@ services:
       timeout: 5s
       retries: 5
 
-  # Redis缂撳瓨
+  # Redis缓存
   redis:
     image: redis:7-alpine
     container_name: edu-redis
-    command: redis-server --requirepass your_password
+    command: redis-server --requirepass ${REDIS_PWD}
     ports:
       - "6379:6379"
     volumes:
@@ -49,12 +50,12 @@ services:
     networks:
       - edu-network
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "your_password", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PWD}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # Nacos娉ㄥ唽涓績/閰嶇疆涓績
+  # Nacos注册中心/配置中心
   nacos:
     image: nacos/nacos-server:v2.3.0
     container_name: edu-nacos
@@ -74,7 +75,7 @@ services:
       timeout: 5s
       retries: 10
 
-  # Elasticsearch (鐭ヨ瘑搴撴绱?
+  # Elasticsearch (知识库检索)
   elasticsearch:
     image: elasticsearch:8.11.0
     container_name: edu-elasticsearch
@@ -94,7 +95,7 @@ services:
       timeout: 5s
       retries: 10
 
-  # 缃戝叧鏈嶅姟
+  # 网关服务
   edu-gateway:
     build:
       context: ./edu-gateway
@@ -104,9 +105,9 @@ services:
       - "9000:9000"
     environment:
       MYSQL_HOST: mysql
-      MYSQL_PWD: your_password
+      MYSQL_PWD: ${MYSQL_PWD}
       REDIS_HOST: redis
-      REDIS_PWD: your_password
+      REDIS_PWD: ${REDIS_PWD}
       NACOS_ADDR: nacos:8848
     depends_on:
       mysql:
@@ -118,7 +119,7 @@ services:
     networks:
       - edu-network
 
-  # 璁よ瘉鏈嶅姟
+  # 认证服务
   edu-auth:
     build:
       context: ./edu-auth
@@ -128,9 +129,9 @@ services:
       - "8081:8081"
     environment:
       MYSQL_HOST: mysql
-      MYSQL_PWD: your_password
+      MYSQL_PWD: ${MYSQL_PWD}
       REDIS_HOST: redis
-      REDIS_PWD: your_password
+      REDIS_PWD: ${REDIS_PWD}
       NACOS_ADDR: nacos:8848
     depends_on:
       mysql:
@@ -142,7 +143,7 @@ services:
     networks:
       - edu-network
 
-  # 鏁欏绠＄悊鏈嶅姟
+  # 教学管理服务
   edu-system:
     build:
       context: ./edu-system
@@ -152,9 +153,9 @@ services:
       - "8082:8082"
     environment:
       MYSQL_HOST: mysql
-      MYSQL_PWD: your_password
+      MYSQL_PWD: ${MYSQL_PWD}
       REDIS_HOST: redis
-      REDIS_PWD: your_password
+      REDIS_PWD: ${REDIS_PWD}
       NACOS_ADDR: nacos:8848
     depends_on:
       mysql:
@@ -166,7 +167,7 @@ services:
     networks:
       - edu-network
 
-  # AI Agent鏈嶅姟
+  # AI Agent服务
   edu-agent:
     build:
       context: ./edu-agent
@@ -176,9 +177,9 @@ services:
       - "8083:8083"
     environment:
       MYSQL_HOST: mysql
-      MYSQL_PWD: your_password
+      MYSQL_PWD: ${MYSQL_PWD}
       REDIS_HOST: redis
-      REDIS_PWD: your_password
+      REDIS_PWD: ${REDIS_PWD}
       NACOS_ADDR: nacos:8848
       ES_URIS: http://elasticsearch:9200
       LLM_PROVIDER: ${LLM_PROVIDER:-deepseek}
@@ -186,7 +187,7 @@ services:
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-sk-xxx}
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-your_deepseek_api_key}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
     depends_on:
       mysql:
         condition: service_healthy
@@ -199,7 +200,8 @@ services:
     networks:
       - edu-network
 
-  # 鐭ヨ瘑搴撴湇鍔?  edu-knowledge:
+  # 知识库服务
+  edu-knowledge:
     build:
       context: ./edu-knowledge
       dockerfile: Dockerfile
@@ -208,9 +210,9 @@ services:
       - "8084:8084"
     environment:
       MYSQL_HOST: mysql
-      MYSQL_PWD: your_password
+      MYSQL_PWD: ${MYSQL_PWD}
       REDIS_HOST: redis
-      REDIS_PWD: your_password
+      REDIS_PWD: ${REDIS_PWD}
       NACOS_ADDR: nacos:8848
       ES_URIS: http://elasticsearch:9200
     volumes:
@@ -234,4 +236,5 @@ volumes:
 networks:
   edu-network:
     driver: bridge
+
 
