@@ -6,6 +6,8 @@ target/
 
 # Environment secrets - NEVER commit these
 .env
+token.txt
+*.token
 
 # IDE files
 .idea/
