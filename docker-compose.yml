@@ -109,6 +109,7 @@ services:
       REDIS_HOST: redis
       REDIS_PWD: ${REDIS_PWD}
       NACOS_ADDR: nacos:8848
+      JWT_SECRET: ${JWT_SECRET}
     depends_on:
       mysql:
         condition: service_healthy
@@ -125,14 +126,13 @@ services:
       context: ./edu-auth
       dockerfile: Dockerfile
     container_name: edu-auth
-    ports:
-      - "8081:8081"
     environment:
       MYSQL_HOST: mysql
       MYSQL_PWD: ${MYSQL_PWD}
       REDIS_HOST: redis
       REDIS_PWD: ${REDIS_PWD}
       NACOS_ADDR: nacos:8848
+      JWT_SECRET: ${JWT_SECRET}
     depends_on:
       mysql:
         condition: service_healthy
@@ -149,8 +149,6 @@ services:
       context: ./edu-system
       dockerfile: Dockerfile
     container_name: edu-system
-    ports:
-      - "8082:8082"
     environment:
       MYSQL_HOST: mysql
       MYSQL_PWD: ${MYSQL_PWD}
@@ -173,8 +171,6 @@ services:
       context: ./edu-agent
       dockerfile: Dockerfile
     container_name: edu-agent
-    ports:
-      - "8083:8083"
     environment:
       MYSQL_HOST: mysql
       MYSQL_PWD: ${MYSQL_PWD}
@@ -206,8 +202,6 @@ services:
       context: ./edu-knowledge
       dockerfile: Dockerfile
     container_name: edu-knowledge
-    ports:
-      - "8084:8084"
     environment:
       MYSQL_HOST: mysql
       MYSQL_PWD: ${MYSQL_PWD}
@@ -236,5 +230,4 @@ volumes:
 networks:
   edu-network:
     driver: bridge
-
 

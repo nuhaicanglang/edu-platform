@@ -82,9 +82,12 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
 
             // 将用户信息传递到下游服务
             ServerHttpRequest mutatedRequest = request.mutate()
-                    .header("X-User-Id", String.valueOf(claims.get("userId")))
-                    .header("X-User-Name", claims.getSubject())
-                    .header("X-User-Role", String.valueOf(claims.get("role")))
+                    .headers(headers -> {
+                        // 身份头只能来自已验证的 JWT，禁止保留客户端伪造值。
+                        headers.set("X-User-Id", String.valueOf(claims.get("userId")));
+                        headers.set("X-User-Name", claims.getSubject());
+                        headers.set("X-User-Role", String.valueOf(claims.get("role")));
+                    })
                     .build();
 
             return chain.filter(exchange.mutate().request(mutatedRequest).build());
