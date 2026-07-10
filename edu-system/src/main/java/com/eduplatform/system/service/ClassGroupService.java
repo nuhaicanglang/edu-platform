@@ -55,6 +55,7 @@ public class ClassGroupService {
         // 互斥锁防击穿 + 空值防穿透
         ClassGroup cg = cache.getOrLoadWithLock(
                 KEY_CLASS + id,
+                ClassGroup.class,
                 () -> classGroupMapper.selectById(id),
                 TTL, JITTER);
         if (cg == null) throw new BusinessException("班级不存在");

@@ -137,7 +137,9 @@ export const analyticsApi = {
 // ===== AI Agent =====
 export const agentApi = {
   askSimple: (question) => api.post('/agent/qa/ask-simple', { question }, { timeout: 120000 }),
-  ask: (question, courseContext) => api.post('/agent/qa/ask', { question, courseContext }, { timeout: 120000 }),
+  ask: (question, courseId, courseContext) => api.post(
+    '/agent/qa/ask', { question, courseId, courseContext }, { timeout: 120000 }
+  ),
   explain: (knowledgePoint, courseName) => api.post('/agent/qa/explain', { knowledgePoint, courseName }, { timeout: 120000 }),
   gradeText: (data) => api.post('/agent/grading/text', data, { timeout: 120000 }),
   gradeCode: (data) => api.post('/agent/grading/code', data, { timeout: 120000 }),

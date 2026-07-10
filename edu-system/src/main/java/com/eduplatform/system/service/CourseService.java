@@ -47,6 +47,7 @@ public class CourseService {
         // 带互斥锁缓存，防击穿；返回 null 时缓存空值，防穿透
         Course course = cache.getOrLoadWithLock(
                 KEY_COURSE + id,
+                Course.class,
                 () -> courseMapper.selectById(id),
                 TTL_SECONDS, TTL_JITTER);
         if (course == null) throw new BusinessException("课程不存在");

@@ -4,10 +4,12 @@ import com.eduplatform.agent.llm.LlmRequest;
 import com.eduplatform.agent.llm.LlmService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
-import java.util.concurrent.TimeUnit;
+import java.time.Duration;
 
 /**
  * 智能问答服务 - 基于课程知识的上下文感知问答
@@ -19,6 +21,12 @@ public class IntelligentQAService {
 
     private final LlmService llmService;
     private final StringRedisTemplate redisTemplate;
+
+    @Value("${qa.history.max-characters:2000}")
+    private int historyMaxCharacters = 2000;
+
+    @Value("${qa.history.ttl:30m}")
+    private Duration historyTtl = Duration.ofMinutes(30);
 
     private static final String SYSTEM_PROMPT = """
             你是一个专业的教学助手AI Agent，专注于为学生提供高质量的学习辅导。
@@ -40,7 +48,7 @@ public class IntelligentQAService {
     /**
      * 智能问答（带课程上下文）
      */
-    public String ask(String question, String courseContext, Long userId) {
+    public String ask(String question, String courseContext, Long courseId, Long userId) {
         LlmRequest request = new LlmRequest();
         request.addSystemMessage(SYSTEM_PROMPT);
 
@@ -49,8 +57,9 @@ public class IntelligentQAService {
         }
 
         // 加载对话历史
-        String historyKey = "qa:history:" + userId;
-        String history = redisTemplate.opsForValue().get(historyKey);
+        String historyKey = "qa:history:" + userId + ":course:"
+                + (courseId == null ? "general" : courseId);
+        String history = loadHistory(historyKey);
         if (history != null && !history.isEmpty()) {
             request.addSystemMessage("以下是之前的对话记录摘要：\n" + history);
         }
@@ -61,7 +70,7 @@ public class IntelligentQAService {
         // 保存对话摘要到Redis（保留最近5轮）
         String newHistory = (history != null ? history + "\n" : "") +
                 "Q: " + truncate(question, 100) + "\nA: " + truncate(answer, 200);
-        redisTemplate.opsForValue().set(historyKey, truncateLast(newHistory, 2000), 30, TimeUnit.MINUTES);
+        saveHistory(historyKey, truncateLast(newHistory, historyMaxCharacters));
 
         return answer;
     }
@@ -109,5 +118,22 @@ public class IntelligentQAService {
     private String truncateLast(String text, int maxLen) {
         if (text == null) return "";
         return text.length() > maxLen ? text.substring(text.length() - maxLen) : text;
+    }
+
+    private String loadHistory(String historyKey) {
+        try {
+            return redisTemplate.opsForValue().get(historyKey);
+        } catch (DataAccessException e) {
+            log.warn("[QA] Redis 历史读取失败，按空历史继续 key={}: {}", historyKey, e.getMessage());
+            return null;
+        }
+    }
+
+    private void saveHistory(String historyKey, String history) {
+        try {
+            redisTemplate.opsForValue().set(historyKey, history, historyTtl);
+        } catch (DataAccessException e) {
+            log.warn("[QA] Redis 历史写入失败，回答结果仍正常返回 key={}: {}", historyKey, e.getMessage());
+        }
     }
 }

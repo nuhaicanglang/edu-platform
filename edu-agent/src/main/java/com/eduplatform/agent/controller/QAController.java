@@ -24,17 +24,17 @@ public class QAController {
     /** 智能问答（带课程上下文） */
     @PostMapping("/ask")
     public R<String> ask(@RequestBody QARequest request,
-                         @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+                         @RequestHeader("X-User-Id") Long userId) {
         String answer = qaService.ask(request.getQuestion(), request.getCourseContext(),
-                userId != null ? userId : 0L);
-        chatRecordService.saveQAPair(userId, null, request.getQuestion(), answer, "deepseek-chat");
+                request.getCourseId(), userId);
+        chatRecordService.saveQAPair(userId, request.getCourseId(), request.getQuestion(), answer, "deepseek-chat");
         return R.ok(answer);
     }
 
     /** 简单问答（无上下文） */
     @PostMapping("/ask-simple")
     public R<String> askSimple(@RequestBody QARequest request,
-                               @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+                               @RequestHeader("X-User-Id") Long userId) {
         String answer = qaService.askSimple(request.getQuestion());
         chatRecordService.saveQAPair(userId, null, request.getQuestion(), answer, "deepseek-chat");
         return R.ok(answer);
@@ -43,7 +43,7 @@ public class QAController {
     /** 知识点讲解 */
     @PostMapping("/explain")
     public R<String> explainKnowledgePoint(@RequestBody ExplainRequest request,
-                                           @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+                                           @RequestHeader("X-User-Id") Long userId) {
         String answer = qaService.explainKnowledgePoint(request.getKnowledgePoint(), request.getCourseName());
         chatRecordService.saveQAPair(userId, null, "讲解知识点: " + request.getKnowledgePoint(), answer, "deepseek-chat");
         return R.ok(answer);
@@ -53,6 +53,7 @@ public class QAController {
     public static class QARequest {
         private String question;
         private String courseContext;
+        private Long courseId;
     }
 
     @Data

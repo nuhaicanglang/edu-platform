@@ -1,203 +1,212 @@
 package com.eduplatform.common.utils;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.Cursor;
-import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Random;
-import java.util.concurrent.TimeUnit;
+import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Supplier;
 
 /**
- * Redis 缓存工具服务
- * 解决缓存三大问题：
- * - 缓存穿透：缓存空值（NULL_VALUE），避免查不存在的数据每次打到 DB
- * - 缓存击穿：SETNX 互斥锁，热点 key 过期时只允许一个线程重建缓存
- * - 缓存雪崩：基础 TTL + 随机偏移，避免大量 key 同时过期
+ * 显式类型的 Redis 缓存服务。
+ * MySQL 始终是事实来源，Redis 读写失败只按缓存未命中处理。
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class RedisCacheService {
 
-    private final RedisTemplate<String, Object> redisTemplate;
-    private final StringRedisTemplate stringRedisTemplate;
-
-    /** 空值占位符（防穿透） */
     private static final String NULL_VALUE = "__NULL__";
-    /** 空值 TTL：2 分钟（短于正常 TTL，减少误缓存影响） */
-    private static final long NULL_TTL_SECONDS = 120;
-    /** 分布式锁默认超时 10 秒 */
-    private static final long LOCK_TTL_SECONDS = 10;
+    private static final Duration NULL_TTL = Duration.ofMinutes(2);
+    private static final Duration LOCK_TTL = Duration.ofSeconds(10);
+    private static final int MAX_LOCK_RETRIES = 3;
+    private static final DefaultRedisScript<Long> UNLOCK_SCRIPT = new DefaultRedisScript<>(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then "
+                    + "return redis.call('del', KEYS[1]) end return 0",
+            Long.class);
 
-    private final Random random = new Random();
+    private final StringRedisTemplate redisTemplate;
+    private final ObjectMapper objectMapper;
 
-    // ===================================================================
-    // 防穿透 + 防雪崩：getOrLoad
-    // ===================================================================
-
-    /**
-     * 从缓存取，缓存未命中则调用 loader 加载并写入缓存。
-     * - 防穿透：loader 返回 null 时写入空值占位符
-     * - 防雪崩：TTL = baseTtl + random(0, jitterSeconds)
-     *
-     * @param key          缓存 key
-     * @param loader       加载数据的函数
-     * @param baseTtl      基础 TTL（秒）
-     * @param jitter       随机抖动范围（秒）
-     */
-    @SuppressWarnings("unchecked")
-    public <T> T getOrLoad(String key, Supplier<T> loader, long baseTtl, int jitter) {
-        Object cached;
-        try { cached = redisTemplate.opsForValue().get(key); }
-        catch (Exception e) { log.warn("[Cache] get error key={}, evict and reload: {}", key, e.getMessage()); redisTemplate.delete(key); cached = null; }
-
-        // 命中空值占位符（防穿透）
-        if (NULL_VALUE.equals(cached)) {
-            log.debug("[Cache] NULL hit key={}", key);
-            return null;
-        }
-
-        // 正常命中
-        if (cached != null) {
-            try {
-                log.debug("[Cache] HIT key={}", key);
-                return (T) cached;
-            } catch (Exception e) {
-                // 反序列化类型不匹配或 Jackson 异常，清除后回退 DB
-                log.warn("[Cache] deserialize error key={}, evict and reload: {}", key, e.getMessage());
-                redisTemplate.delete(key);
-            }
-        }
-
-        // 未命中，加载数据
-        log.debug("[Cache] MISS key={}", key);
-        T data = loader.get();
-
-        long ttl = baseTtl + random.nextInt(Math.max(1, jitter));
-        if (data == null) {
-            // 防穿透：缓存空值
-            redisTemplate.opsForValue().set(key, NULL_VALUE, NULL_TTL_SECONDS, TimeUnit.SECONDS);
-        } else {
-            redisTemplate.opsForValue().set(key, data, ttl, TimeUnit.SECONDS);
-        }
-        return data;
+    public <T> T getOrLoad(
+            String key, Class<T> valueType, Supplier<T> loader, Duration ttl) {
+        CacheRead<T> cached = read(key, valueType);
+        if (cached.found()) return cached.value();
+        T value = loader.get();
+        write(key, value, ttl);
+        return value;
     }
 
-    // ===================================================================
-    // 防穿透 + 防雪崩 + 防击穿：getOrLoadWithLock
-    // ===================================================================
+    public <T> T getOrLoad(
+            String key, Class<T> valueType, Supplier<T> loader, long baseTtlSeconds, int jitterSeconds) {
+        return getOrLoad(key, valueType, loader, jitteredTtl(baseTtlSeconds, jitterSeconds));
+    }
 
-    /**
-     * 带互斥锁的缓存获取，防止热点 key 失效时缓存击穿。
-     * 获取锁失败时短暂等待后重试（最多 3 次），避免死循环。
-     */
-    @SuppressWarnings("unchecked")
-    public <T> T getOrLoadWithLock(String key, Supplier<T> loader, long baseTtl, int jitter) {
-        // 先尝试直接读缓存
-        Object cached;
-        try { cached = redisTemplate.opsForValue().get(key); }
-        catch (Exception e) { log.warn("[Cache] get error key={}: {}", key, e.getMessage()); cached = null; }
-        if (NULL_VALUE.equals(cached)) return null;
-        if (cached != null) {
-            try { return (T) cached; } catch (Exception e) {
-                log.warn("[Cache] cast error key={}, evict and reload", key);
-                redisTemplate.delete(key);
-            }
-        }
+    public <T> T getOrLoadWithLock(
+            String key, Class<T> valueType, Supplier<T> loader, Duration ttl) {
+        CacheRead<T> cached = read(key, valueType);
+        if (cached.found()) return cached.value();
 
         String lockKey = "lock:" + key;
-        int retries = 3;
-
-        while (retries-- > 0) {
-            // 尝试获取分布式锁（SETNX）
-            Boolean locked = stringRedisTemplate.opsForValue()
-                    .setIfAbsent(lockKey, "1", LOCK_TTL_SECONDS, TimeUnit.SECONDS);
-
-            if (Boolean.TRUE.equals(locked)) {
+        for (int attempt = 0; attempt < MAX_LOCK_RETRIES; attempt++) {
+            String token = UUID.randomUUID().toString();
+            LockResult lockResult = tryLock(lockKey, token);
+            if (lockResult == LockResult.UNAVAILABLE) {
+                return loader.get();
+            }
+            if (lockResult == LockResult.ACQUIRED) {
                 try {
-                    // 双重检查：拿到锁后再查一次缓存（可能其他线程已重建）
-                    Object recheck = redisTemplate.opsForValue().get(key);
-                    if (NULL_VALUE.equals(recheck)) return null;
-                    if (recheck != null) {
-                        try { return (T) recheck; } catch (ClassCastException e) {
-                            log.warn("[Cache] recheck cast error key={}", key);
-                        }
-                    }
-
-                    // 真正加载
-                    T data = loader.get();
-                    long ttl = baseTtl + random.nextInt(Math.max(1, jitter));
-                    if (data == null) {
-                        redisTemplate.opsForValue().set(key, NULL_VALUE, NULL_TTL_SECONDS, TimeUnit.SECONDS);
-                    } else {
-                        redisTemplate.opsForValue().set(key, data, ttl, TimeUnit.SECONDS);
-                    }
-                    return data;
+                    CacheRead<T> rechecked = read(key, valueType);
+                    if (rechecked.found()) return rechecked.value();
+                    T value = loader.get();
+                    write(key, value, ttl);
+                    return value;
                 } finally {
-                    stringRedisTemplate.delete(lockKey);
-                }
-            } else {
-                // 未拿到锁，等待 50ms 重试
-                try { Thread.sleep(50); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-                Object retry = redisTemplate.opsForValue().get(key);
-                if (NULL_VALUE.equals(retry)) return null;
-                if (retry != null) {
-                    try {
-                        return (T) retry;
-                    } catch (ClassCastException e) {
-                        log.warn("[Cache] retry cast error key={}", key);
-                        redisTemplate.delete(key);
-                    }
+                    unlock(lockKey, token);
                 }
             }
+
+            try {
+                Thread.sleep(ThreadLocalRandom.current().nextLong(30, 71));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.warn("[Cache] 等待锁时被中断 key={}", key);
+                return loader.get();
+            }
+
+            CacheRead<T> retry = read(key, valueType);
+            if (retry.found()) return retry.value();
         }
 
-        // 兜底：直接查 DB（锁竞争失败也不让请求失败）
-        log.warn("[Cache] lock retry exhausted, fallback to loader key={}", key);
+        log.warn("[Cache] 锁竞争重试耗尽，回退数据源 key={}", key);
         return loader.get();
     }
 
-    // ===================================================================
-    // 缓存失效
-    // ===================================================================
-
-    /** 删除单个 key */
-    public void evict(String key) {
-        redisTemplate.delete(key);
-        log.debug("[Cache] EVICT key={}", key);
+    public <T> T getOrLoadWithLock(
+            String key, Class<T> valueType, Supplier<T> loader, long baseTtlSeconds, int jitterSeconds) {
+        return getOrLoadWithLock(
+                key, valueType, loader, jitteredTtl(baseTtlSeconds, jitterSeconds));
     }
 
-    /**
-     * 批量删除匹配 pattern 的 key。
-     * <p>
-     * 使用 SCAN 迭代而非 KEYS 命令，避免在生产大数据量下阻塞 Redis。
-     * 每批处理 500 个 key，游标式扫描完成后统一批量删除。
-     * </p>
-     */
+    public void evict(String key) {
+        try {
+            redisTemplate.delete(key);
+            log.debug("[Cache] EVICT key={}", key);
+        } catch (DataAccessException e) {
+            log.warn("[Cache] 删除失败 key={}: {}", key, e.getMessage());
+        }
+    }
+
     public void evictPattern(String pattern) {
         List<String> keys = new ArrayList<>();
         ScanOptions options = ScanOptions.scanOptions().match(pattern).count(500).build();
-        redisTemplate.execute((org.springframework.data.redis.connection.RedisConnection conn) -> {
-            try (Cursor<byte[]> cursor = conn.scan(options)) {
-                while (cursor.hasNext()) {
-                    keys.add(new String(cursor.next(), StandardCharsets.UTF_8));
+        try {
+            redisTemplate.execute((RedisCallback<Void>) connection -> {
+                try (Cursor<byte[]> cursor = connection.scan(options)) {
+                    while (cursor.hasNext()) {
+                        keys.add(new String(cursor.next(), StandardCharsets.UTF_8));
+                    }
                 }
-            } catch (Exception e) {
-                log.warn("[Cache] SCAN error pattern={}: {}", pattern, e.getMessage());
+                return null;
+            });
+            if (!keys.isEmpty()) {
+                redisTemplate.delete(keys);
+                log.debug("[Cache] EVICT pattern={} count={}", pattern, keys.size());
             }
-            return null;
-        });
-        if (!keys.isEmpty()) {
-            redisTemplate.delete(keys);
-            log.debug("[Cache] EVICT pattern={} count={}", pattern, keys.size());
+        } catch (DataAccessException e) {
+            log.warn("[Cache] 批量删除失败 pattern={}: {}", pattern, e.getMessage());
+        }
+    }
+
+    private <T> CacheRead<T> read(String key, Class<T> valueType) {
+        final String cached;
+        try {
+            cached = redisTemplate.opsForValue().get(key);
+        } catch (DataAccessException e) {
+            log.warn("[Cache] 读取失败，按未命中处理 key={}: {}", key, e.getMessage());
+            return CacheRead.miss();
+        }
+
+        if (cached == null) return CacheRead.miss();
+        if (NULL_VALUE.equals(cached)) return CacheRead.hit(null);
+        try {
+            return CacheRead.hit(objectMapper.readValue(cached, valueType));
+        } catch (JsonProcessingException e) {
+            log.warn("[Cache] JSON 解析失败，清除损坏缓存 key={}: {}", key, e.getMessage());
+            evict(key);
+            return CacheRead.miss();
+        }
+    }
+
+    private void write(String key, Object value, Duration ttl) {
+        if (ttl == null || ttl.isZero() || ttl.isNegative()) {
+            throw new IllegalArgumentException("缓存 TTL 必须为正数");
+        }
+        try {
+            if (value == null) {
+                redisTemplate.opsForValue().set(key, NULL_VALUE, NULL_TTL);
+            } else {
+                redisTemplate.opsForValue().set(key, objectMapper.writeValueAsString(value), ttl);
+            }
+        } catch (JsonProcessingException e) {
+            log.warn("[Cache] JSON 序列化失败 key={}: {}", key, e.getMessage());
+        } catch (DataAccessException e) {
+            log.warn("[Cache] 写入失败 key={}: {}", key, e.getMessage());
+        }
+    }
+
+    private LockResult tryLock(String lockKey, String token) {
+        try {
+            Boolean acquired = redisTemplate.opsForValue().setIfAbsent(lockKey, token, LOCK_TTL);
+            return Boolean.TRUE.equals(acquired) ? LockResult.ACQUIRED : LockResult.CONTENDED;
+        } catch (DataAccessException e) {
+            log.warn("[Cache] 获取锁失败 lockKey={}: {}", lockKey, e.getMessage());
+            return LockResult.UNAVAILABLE;
+        }
+    }
+
+    private void unlock(String lockKey, String token) {
+        try {
+            redisTemplate.execute(UNLOCK_SCRIPT, List.of(lockKey), token);
+        } catch (DataAccessException e) {
+            log.warn("[Cache] 释放锁失败 lockKey={}: {}", lockKey, e.getMessage());
+        }
+    }
+
+    private Duration jitteredTtl(long baseTtlSeconds, int jitterSeconds) {
+        if (baseTtlSeconds <= 0 || jitterSeconds < 0) {
+            throw new IllegalArgumentException("缓存 TTL 参数非法");
+        }
+        long jitter = jitterSeconds == 0
+                ? 0
+                : ThreadLocalRandom.current().nextLong(jitterSeconds + 1L);
+        return Duration.ofSeconds(baseTtlSeconds + jitter);
+    }
+
+    private enum LockResult {
+        ACQUIRED, CONTENDED, UNAVAILABLE
+    }
+
+    private record CacheRead<T>(boolean found, T value) {
+        private static <T> CacheRead<T> hit(T value) {
+            return new CacheRead<>(true, value);
+        }
+
+        private static <T> CacheRead<T> miss() {
+            return new CacheRead<>(false, null);
         }
     }
 }
