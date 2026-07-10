@@ -79,7 +79,7 @@ public class ElasticsearchKnowledgeVectorIndex implements KnowledgeVectorIndex {
 
         @SuppressWarnings("unchecked")
         Map<String, Object> response = restClient.post()
-                .uri("/_bulk")
+                .uri("/_bulk?refresh=wait_for")
                 .contentType(NDJSON)
                 .body(bulk.toString().getBytes(StandardCharsets.UTF_8))
                 .retrieve()
