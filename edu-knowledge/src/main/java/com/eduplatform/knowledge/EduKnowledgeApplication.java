@@ -3,8 +3,10 @@ package com.eduplatform.knowledge;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 import org.springframework.context.annotation.ComponentScan;
+import com.eduplatform.knowledge.config.RagProperties;
 
 /**
  * edu-knowledge 知识库服务启动类
@@ -14,6 +16,7 @@ import org.springframework.context.annotation.ComponentScan;
  * </p>
  */
 @SpringBootApplication
+@EnableConfigurationProperties(RagProperties.class)
 @EnableDiscoveryClient
 @ComponentScan(basePackages = {"com.eduplatform"})
 @MapperScan("com.eduplatform.knowledge.mapper")

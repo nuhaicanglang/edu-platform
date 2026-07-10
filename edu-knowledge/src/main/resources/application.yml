@@ -48,6 +48,16 @@ file:
   upload:
     path: ${FILE_UPLOAD_PATH:C:/edu-uploads}
 
+rag:
+  embedding:
+    model: ${OLLAMA_EMBEDDING_MODEL:bge-m3:latest}
+    dimensions: ${OLLAMA_EMBEDDING_DIMENSIONS:1024}
+    base-url: ${OLLAMA_BASE_URL:http://127.0.0.1:11434}
+    connect-timeout: ${OLLAMA_CONNECT_TIMEOUT:5s}
+    read-timeout: ${OLLAMA_READ_TIMEOUT:120s}
+    batch-size: ${OLLAMA_BATCH_SIZE:16}
+    keep-alive: ${OLLAMA_KEEP_ALIVE:30m}
+
 logging:
   level:
     com.eduplatform: debug

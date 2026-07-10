@@ -209,6 +209,8 @@ services:
       REDIS_PWD: ${REDIS_PWD}
       NACOS_ADDR: nacos:8848
       ES_URIS: http://elasticsearch:9200
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-bge-m3:latest}
     volumes:
       - upload-data:/app/uploads
     depends_on:
@@ -217,6 +219,8 @@ services:
       redis:
         condition: service_healthy
       nacos:
+        condition: service_healthy
+      elasticsearch:
         condition: service_healthy
     networks:
       - edu-network
@@ -230,4 +234,3 @@ volumes:
 networks:
   edu-network:
     driver: bridge
-
