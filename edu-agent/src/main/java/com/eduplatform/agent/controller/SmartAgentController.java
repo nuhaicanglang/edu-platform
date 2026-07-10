@@ -2,6 +2,7 @@ package com.eduplatform.agent.controller;
 
 import com.eduplatform.agent.agent.EduAgent;
 import com.eduplatform.common.core.domain.R;
+import com.eduplatform.agent.security.AgentRequestContext;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.*;
 public class SmartAgentController {
 
     private final EduAgent eduAgent;
+    private final AgentRequestContext requestContext;
 
     /**
      * 智能 Agent 问答 - LLM 自主决策调用工具
@@ -31,20 +33,17 @@ public class SmartAgentController {
      */
     @PostMapping("/ask")
     public R<String> ask(@RequestBody AgentAskRequest request,
-                         @RequestHeader(value = "X-User-Id", required = false) Long userId) {
-        long uid = userId != null ? userId : 0L;
-        log.info("SmartAgent request: userId={}, question={}", uid, request.getQuestion());
+                         @RequestHeader("X-User-Id") Long userId,
+                         @RequestHeader("X-User-Role") String role) {
+        log.info("SmartAgent request: userId={}, courseId={}", userId, request.getCourseId());
 
         String question = request.getQuestion();
         if (request.getCourseId() != null) {
             question = "[课程ID=" + request.getCourseId() + "] " + question;
         }
-        if (request.getStudentId() != null) {
-            question = "[学生ID=" + request.getStudentId() + "] " + question;
+        try (AgentRequestContext.Scope ignored = requestContext.open(userId, role, request.getCourseId())) {
+            return R.ok(eduAgent.chat(userId, question));
         }
-
-        String answer = eduAgent.chat(uid, question);
-        return R.ok(answer);
     }
 
     @Data
@@ -53,7 +52,5 @@ public class SmartAgentController {
         private String question;
         /** 课程ID（可选，提供后 Agent 可更精准查询） */
         private Long courseId;
-        /** 学生ID（可选，查询特定学生数据时使用） */
-        private Long studentId;
     }
 }

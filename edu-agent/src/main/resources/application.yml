@@ -66,6 +66,8 @@ qa:
   history:
     max-characters: ${QA_HISTORY_MAX_CHARACTERS:2000}
     ttl: ${QA_HISTORY_TTL:30m}
+  rag:
+    max-context-characters: ${QA_RAG_MAX_CONTEXT_CHARACTERS:12000}
 
 logging:
   level:

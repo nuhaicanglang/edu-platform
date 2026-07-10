@@ -6,6 +6,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import com.eduplatform.agent.client.KnowledgeClient;
+import com.eduplatform.agent.domain.dto.KnowledgeRetrievalRequest;
+import com.eduplatform.agent.domain.dto.KnowledgeRetrievalResponse;
+import com.eduplatform.agent.security.AgentRequestContext;
+import com.eduplatform.common.core.domain.R;
 
 import java.util.List;
 import java.util.Map;
@@ -23,25 +28,27 @@ import java.util.Map;
 public class AgentTools {
 
     private final JdbcTemplate jdbcTemplate;
+    private final KnowledgeClient knowledgeClient;
+    private final AgentRequestContext requestContext;
 
     @Tool("搜索指定课程的知识库，根据关键词查找相关知识内容片段，用于回答与课程知识相关的问题")
     public String searchKnowledge(
             @P("课程ID，如果不知道可以传0表示搜索所有课程") long courseId,
             @P("搜索关键词，尽量精炼") String keyword) {
         try {
-            String sql = courseId > 0
-                    ? "SELECT content FROM knowledge_chunk WHERE course_id = ? AND content LIKE ? LIMIT 5"
-                    : "SELECT content FROM knowledge_chunk WHERE content LIKE ? LIMIT 5";
-            List<Map<String, Object>> rows = courseId > 0
-                    ? jdbcTemplate.queryForList(sql, courseId, "%" + keyword + "%")
-                    : jdbcTemplate.queryForList(sql, "%" + keyword + "%");
-
-            if (rows.isEmpty()) return "未找到与「" + keyword + "」相关的知识内容。";
-
-            StringBuilder sb = new StringBuilder("找到 ").append(rows.size()).append(" 条相关知识：\n\n");
-            for (int i = 0; i < rows.size(); i++) {
+            AgentRequestContext.Identity identity = requireCourseAccess(courseId);
+            R<KnowledgeRetrievalResponse> response = knowledgeClient.retrieve(
+                    new KnowledgeRetrievalRequest(keyword, courseId),
+                    String.valueOf(identity.userId()), identity.role());
+            if (response == null || !response.isSuccess() || response.getData() == null
+                    || response.getData().sources() == null || response.getData().sources().isEmpty()) {
+                return "未找到与「" + keyword + "」相关的知识内容。";
+            }
+            List<KnowledgeRetrievalResponse.Source> sources = response.getData().sources();
+            StringBuilder sb = new StringBuilder("找到 ").append(sources.size()).append(" 条相关知识：\n\n");
+            for (int i = 0; i < sources.size(); i++) {
                 sb.append("【片段").append(i + 1).append("】\n")
-                  .append(rows.get(i).get("content")).append("\n\n");
+                  .append(sources.get(i).content()).append("\n\n");
             }
             return sb.toString();
         } catch (Exception e) {
@@ -53,6 +60,7 @@ public class AgentTools {
     @Tool("获取课程的基本信息，包括课程名称、描述、教师等")
     public String getCourseInfo(@P("课程ID") long courseId) {
         try {
+            requireCourseAccess(courseId);
             List<Map<String, Object>> rows = jdbcTemplate.queryForList(
                     "SELECT course_name, description, teacher_id, status FROM course WHERE id = ? AND deleted = 0",
                     courseId);
@@ -69,6 +77,7 @@ public class AgentTools {
     @Tool("获取某课程的作业列表及统计信息，包括作业数量、平均分、提交率")
     public String getAssignmentStats(@P("课程ID") long courseId) {
         try {
+            requireCourseAccess(courseId);
             List<Map<String, Object>> assignments = jdbcTemplate.queryForList(
                     "SELECT a.title, a.max_score, " +
                     "COUNT(s.id) as submit_count, AVG(s.score) as avg_score " +
@@ -98,16 +107,15 @@ public class AgentTools {
             @P("学生用户ID") long studentId,
             @P("课程ID，如果是全部课程可以传0") long courseId) {
         try {
-            String sql = courseId > 0
-                    ? "SELECT a.title, s.score, s.ai_score, s.submit_time, s.status " +
-                      "FROM assignment_submission s JOIN assignment a ON s.assignment_id = a.id " +
-                      "WHERE s.student_id = ? AND a.course_id = ? ORDER BY s.submit_time DESC LIMIT 10"
-                    : "SELECT a.title, s.score, s.ai_score, s.submit_time, s.status " +
-                      "FROM assignment_submission s JOIN assignment a ON s.assignment_id = a.id " +
-                      "WHERE s.student_id = ? ORDER BY s.submit_time DESC LIMIT 10";
-            List<Map<String, Object>> rows = courseId > 0
-                    ? jdbcTemplate.queryForList(sql, studentId, courseId)
-                    : jdbcTemplate.queryForList(sql, studentId);
+            AgentRequestContext.Identity identity = requireCourseAccess(courseId);
+            if ("student".equals(identity.role()) && studentId != identity.userId()) {
+                return "权限不足：学生只能查询自己的学习记录。";
+            }
+            String sql = "SELECT a.title, s.score, s.submit_time, s.status " +
+                    "FROM assignment_submission s JOIN assignment a ON s.assignment_id = a.id " +
+                    "WHERE s.student_id = ? AND a.course_id = ? " +
+                    "AND s.deleted = 0 AND a.deleted = 0 ORDER BY s.submit_time DESC LIMIT 10";
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, studentId, courseId);
 
             if (rows.isEmpty()) return "该学生暂无作业提交记录。";
 
@@ -115,7 +123,6 @@ public class AgentTools {
             for (Map<String, Object> r : rows) {
                 sb.append("- 《").append(r.get("title")).append("》")
                   .append("  得分:").append(r.get("score") != null ? r.get("score") : "未批改")
-                  .append("  AI评分:").append(r.get("ai_score") != null ? r.get("ai_score") : "无")
                   .append("  状态:").append(r.get("status"))
                   .append("\n");
             }
@@ -129,6 +136,7 @@ public class AgentTools {
     @Tool("获取班级整体学情统计，包括人数、平均分、完成率等")
     public String getClassOverview(@P("课程ID") long courseId) {
         try {
+            requireCourseAccess(courseId);
             List<Map<String, Object>> stats = jdbcTemplate.queryForList(
                     "SELECT COUNT(DISTINCT s.student_id) as student_count, " +
                     "COUNT(s.id) as total_submissions, " +
@@ -151,5 +159,29 @@ public class AgentTools {
             log.error("getClassOverview 工具调用失败", e);
             return "班级统计查询失败：" + e.getMessage();
         }
+    }
+
+    private AgentRequestContext.Identity requireCourseAccess(long courseId) {
+        AgentRequestContext.Identity identity = requestContext.require();
+        if (courseId <= 0) throw new IllegalArgumentException("必须指定课程ID");
+        if (identity.courseId() != null && identity.courseId() != courseId) {
+            throw new IllegalArgumentException("工具调用课程与用户选择课程不一致");
+        }
+        if ("admin".equals(identity.role())) return identity;
+
+        Long count;
+        if ("teacher".equals(identity.role())) {
+            count = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM course WHERE id=? AND teacher_id=? AND deleted=0",
+                    Long.class, courseId, identity.userId());
+        } else {
+            count = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM class_group cg JOIN class_student cs "
+                            + "ON cs.class_id=cg.id AND cs.deleted=0 "
+                            + "WHERE cg.course_id=? AND cs.student_id=? AND cg.deleted=0",
+                    Long.class, courseId, identity.userId());
+        }
+        if (count == null || count == 0) throw new IllegalArgumentException("无权访问该课程");
+        return identity;
     }
 }

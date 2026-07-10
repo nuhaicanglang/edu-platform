@@ -2,6 +2,7 @@ package com.eduplatform.agent.controller;
 
 import com.eduplatform.agent.service.ChatRecordService;
 import com.eduplatform.agent.service.IntelligentQAService;
+import com.eduplatform.agent.domain.dto.RagAnswer;
 import com.eduplatform.common.core.domain.R;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
@@ -23,11 +24,12 @@ public class QAController {
 
     /** 智能问答（带课程上下文） */
     @PostMapping("/ask")
-    public R<String> ask(@RequestBody QARequest request,
-                         @RequestHeader("X-User-Id") Long userId) {
-        String answer = qaService.ask(request.getQuestion(), request.getCourseContext(),
-                request.getCourseId(), userId);
-        chatRecordService.saveQAPair(userId, request.getCourseId(), request.getQuestion(), answer, "deepseek-chat");
+    public R<RagAnswer> ask(@RequestBody QARequest request,
+                            @RequestHeader("X-User-Id") Long userId,
+                            @RequestHeader("X-User-Role") String role) {
+        RagAnswer answer = qaService.ask(request.getQuestion(), request.getCourseId(), userId, role);
+        chatRecordService.saveQAPair(
+                userId, request.getCourseId(), request.getQuestion(), answer.answer(), "deepseek-chat");
         return R.ok(answer);
     }
 
@@ -52,7 +54,6 @@ public class QAController {
     @Data
     public static class QARequest {
         private String question;
-        private String courseContext;
         private Long courseId;
     }
 
