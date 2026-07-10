@@ -28,7 +28,7 @@ public class AgentClientService {
     private String agentBaseUrl;
 
     private final ObjectMapper objectMapper;
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
 
     /**
      * 调用Agent服务进行文本作业批改

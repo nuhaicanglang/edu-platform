@@ -13,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.core.task.TaskRejectedException;
 
 import com.eduplatform.system.util.GradingJsonParser;
 
@@ -204,13 +205,24 @@ public class AssignmentService {
         if (!assignmentId.equals(submission.getAssignmentId())) {
             throw new BusinessException(400, "提交记录不属于该作业");
         }
+        if ("grading".equals(submission.getGradingStatus())
+                || "completed".equals(submission.getGradingStatus())) {
+            return submission;
+        }
 
         // 立即标记为批改中，持久化后返回给前端
         submission.setGradingStatus("grading");
         submissionMapper.updateById(submission);
 
         // 触发异步批改（在 gradingExecutor 线程池中执行，不阻塞当前请求线程）
-        asyncGradingService.gradeAsync(assignmentId, submissionId);
+        try {
+            asyncGradingService.gradeAsync(assignmentId, submissionId);
+        } catch (TaskRejectedException e) {
+            submission.setGradingStatus("retry");
+            submission.setAiComment("批改队列繁忙，请稍后重试");
+            submissionMapper.updateById(submission);
+            throw new BusinessException(429, "AI 批改任务已达并发上限，请稍后重试");
+        }
 
         log.info("[Grading] 异步批改已触发: submissionId={}", submissionId);
         return submission;

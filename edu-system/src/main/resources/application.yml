@@ -55,5 +55,11 @@ logging:
   level:
     com.eduplatform: debug
 
+service:
+  agent:
+    url: ${AGENT_SERVICE_URL:http://localhost:8083}
+    connect-timeout: ${AGENT_CONNECT_TIMEOUT:5s}
+    read-timeout: ${AGENT_READ_TIMEOUT:120s}
+
 
 
