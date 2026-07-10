@@ -1,8 +1,10 @@
 package com.eduplatform.gateway;
 
+import com.eduplatform.security.JwtSecurityConfiguration;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
+import org.springframework.context.annotation.Import;
 
 /**
  * edu-gateway API 网关启动类
@@ -14,6 +16,7 @@ import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
  */
 @SpringBootApplication
 @EnableDiscoveryClient
+@Import(JwtSecurityConfiguration.class)
 public class EduGatewayApplication {
     public static void main(String[] args) {
         SpringApplication.run(EduGatewayApplication.class, args);

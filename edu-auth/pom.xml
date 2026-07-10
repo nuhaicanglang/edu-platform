@@ -19,6 +19,10 @@
             <groupId>com.eduplatform</groupId>
             <artifactId>edu-common</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.eduplatform</groupId>
+            <artifactId>edu-security</artifactId>
+        </dependency>
         <!-- Nacos Discovery -->
         <dependency>
             <groupId>com.alibaba.cloud</groupId>

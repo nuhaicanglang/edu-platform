@@ -96,11 +96,14 @@ user.setRole("student");
 
 Run the same Maven command. Expected: PASS.
 
-### Task 3: Replace static JWT defaults with a validated service
+### Task 3: Replace static JWT defaults with a validated security module
 
 **Files:**
-- Create: `edu-common/src/main/java/com/eduplatform/common/security/JwtProperties.java`
-- Create: `edu-common/src/main/java/com/eduplatform/common/security/JwtService.java`
+- Create: `edu-security/pom.xml`
+- Create: `edu-security/src/main/java/com/eduplatform/security/JwtProperties.java`
+- Create: `edu-security/src/main/java/com/eduplatform/security/JwtService.java`
+- Create: `edu-security/src/main/java/com/eduplatform/security/JwtSecurityConfiguration.java`
+- Modify: `pom.xml`
 - Modify: `edu-auth/src/main/java/com/eduplatform/auth/service/AuthService.java`
 - Modify: `edu-gateway/src/main/java/com/eduplatform/gateway/filter/AuthGlobalFilter.java`
 - Modify: `edu-auth/src/main/resources/application.yml`
@@ -129,13 +132,13 @@ class JwtServiceTest {
 
 - [ ] **Step 2: Run RED**
 
-Run: `mvn -pl edu-common -Dtest=JwtServiceTest test`
+Run: `mvn -pl edu-security -Dtest=JwtServiceTest test`
 
 Expected: FAIL because the service and properties do not exist.
 
 - [ ] **Step 3: Implement validated JWT configuration**
 
-`JwtProperties` is a `@ConfigurationProperties(prefix = "jwt")` record with `secret` and `expiration`. `JwtService` rejects secrets shorter than 32 UTF-8 bytes in its constructor and owns generate/parse operations. Configure:
+`JwtProperties` is a `@ConfigurationProperties(prefix = "jwt")` record with `secret` and `expiration`. `JwtService` rejects secrets shorter than 32 UTF-8 bytes in its constructor and owns generate/parse operations. `JwtSecurityConfiguration` is explicitly imported by Auth and Gateway so the reactive Gateway does not depend on the Servlet-heavy common module. Configure:
 
 ```yaml
 jwt:

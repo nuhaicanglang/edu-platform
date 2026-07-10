@@ -12,6 +12,7 @@
     <description>可嵌入式跨课程AI Agent通用架构平台</description>
 
     <modules>
+        <module>edu-security</module>
         <module>edu-common</module>
         <module>edu-gateway</module>
         <module>edu-auth</module>
@@ -125,6 +126,11 @@
             <dependency>
                 <groupId>com.eduplatform</groupId>
                 <artifactId>edu-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.eduplatform</groupId>
+                <artifactId>edu-security</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>

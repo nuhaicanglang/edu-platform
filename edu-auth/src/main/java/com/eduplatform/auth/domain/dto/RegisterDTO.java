@@ -18,10 +18,6 @@ public class RegisterDTO {
     @NotBlank(message = "真实姓名不能为空")
     private String realName;
 
-    /** 角色: teacher / student */
-    @NotBlank(message = "角色不能为空")
-    private String role;
-
     /** 学号/工号 */
     private String userCode;
 

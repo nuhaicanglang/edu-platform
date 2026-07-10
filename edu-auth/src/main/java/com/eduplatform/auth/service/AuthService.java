@@ -7,7 +7,7 @@ import com.eduplatform.auth.domain.entity.SysUser;
 import com.eduplatform.auth.domain.vo.LoginVO;
 import com.eduplatform.auth.mapper.SysUserMapper;
 import com.eduplatform.common.exception.BusinessException;
-import com.eduplatform.common.utils.JwtUtils;
+import com.eduplatform.security.JwtService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -24,6 +24,7 @@ public class AuthService {
 
     private final SysUserMapper userMapper;
     private final BCryptPasswordEncoder passwordEncoder;
+    private final JwtService jwtService;
 
     /**
      * 用户登录
@@ -43,7 +44,7 @@ public class AuthService {
             throw new BusinessException("用户名或密码错误");
         }
 
-        String token = JwtUtils.generateToken(user.getId(), user.getUsername(), user.getRole());
+        String token = jwtService.generateToken(user.getId(), user.getUsername(), user.getRole());
 
         LoginVO vo = new LoginVO();
         vo.setToken(token);
@@ -70,7 +71,8 @@ public class AuthService {
         user.setUsername(dto.getUsername());
         user.setPassword(passwordEncoder.encode(dto.getPassword()));
         user.setRealName(dto.getRealName());
-        user.setRole(dto.getRole());
+        // 公开注册只能创建学生账号，教师和管理员必须通过受保护的管理流程创建。
+        user.setRole("student");
         user.setUserCode(dto.getUserCode());
         user.setPhone(dto.getPhone());
         user.setEmail(dto.getEmail());

@@ -1,8 +1,7 @@
 package com.eduplatform.gateway.filter;
 
+import com.eduplatform.security.JwtService;
 import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.security.Keys;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
@@ -18,7 +17,6 @@ import org.springframework.util.AntPathMatcher;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
-import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
@@ -35,19 +33,12 @@ import java.util.List;
 @Component
 public class AuthGlobalFilter implements GlobalFilter, Ordered {
 
-    /** 默认密钥（仅开发环境兜底使用，生产必须通过 JWT_SECRET 环境变量覆盖） */
-    private static final String DEFAULT_SECRET = "EduPlatformSecretKey2024ForJWTTokenGeneration!!";
-
-    /** 与 edu-common JwtUtils 保持一致的密钥解析逻辑 */
-    private static final String SECRET = resolveSecret();
+    private final JwtService jwtService;
 
     private static final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
 
-    private static String resolveSecret() {
-        String s = System.getenv("JWT_SECRET");
-        if (s == null || s.isBlank()) s = System.getProperty("jwt.secret");
-        if (s == null || s.isBlank()) s = DEFAULT_SECRET;
-        return s;
+    public AuthGlobalFilter(JwtService jwtService) {
+        this.jwtService = jwtService;
     }
 
     /** 白名单路径 */
@@ -87,9 +78,7 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
 
         // 验证Token
         try {
-            SecretKey key = Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
-            Claims claims = Jwts.parser().verifyWith(key).build()
-                    .parseSignedClaims(token).getPayload();
+            Claims claims = jwtService.parseToken(token);
 
             // 将用户信息传递到下游服务
             ServerHttpRequest mutatedRequest = request.mutate()
