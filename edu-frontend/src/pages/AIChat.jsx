@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send, Bot, User, Loader2, Trash2, History, MessageSquare } from 'lucide-react'
+import { Send, Bot, User, Loader2, Trash2, History, MessageSquare, BookOpen } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
-import { agentApi } from '../api'
+import { agentApi, courseApi } from '../api'
 
 export default function AIChat() {
   const [tab, setTab] = useState('chat') // 'chat' | 'history'
@@ -11,6 +11,9 @@ export default function AIChat() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [agentMode, setAgentMode] = useState(false)
+  const [courses, setCourses] = useState([])
+  const [courseId, setCourseId] = useState('')
+  const [courseLoading, setCourseLoading] = useState(true)
   const bottomRef = useRef(null)
 
   // History state
@@ -22,6 +25,17 @@ export default function AIChat() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  useEffect(() => {
+    courseApi.myList()
+      .then(res => {
+        const list = res.data || []
+        setCourses(list)
+        if (list.length === 1) setCourseId(String(list[0].id))
+      })
+      .catch(() => setCourses([]))
+      .finally(() => setCourseLoading(false))
+  }, [])
 
   useEffect(() => {
     if (tab === 'history') loadHistory()
@@ -39,17 +53,29 @@ export default function AIChat() {
 
   const handleSend = async () => {
     const q = input.trim()
-    if (!q || loading) return
+    if (!q || loading || !courseId) return
     setInput('')
     setMessages(prev => [...prev, { role: 'user', content: q }])
     setLoading(true)
     try {
       const res = agentMode
-        ? await agentApi.smartAsk({ question: q })
-        : await agentApi.askSimple(q)
-      setMessages(prev => [...prev, { role: 'assistant', content: res.data }])
+        ? await agentApi.smartAsk({ question: q, courseId: Number(courseId) })
+        : await agentApi.ask(q, Number(courseId))
+      const payload = agentMode
+        ? { answer: res.data, retrievalMode: 'agent', sources: [] }
+        : res.data
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: payload.answer,
+        retrievalMode: payload.retrievalMode,
+        sources: payload.sources || []
+      }])
     } catch (err) {
-      setMessages(prev => [...prev, { role: 'assistant', content: '抱歉，请求出错：' + (err.message || '未知错误') }])
+      const unavailable = err.response?.status === 503 || err.message?.includes('暂时不可用')
+      const message = unavailable
+        ? '课程知识检索服务暂时不可用，请确认 Ollama 与 Elasticsearch 已启动后重试。'
+        : '抱歉，请求出错：' + (err.message || '未知错误')
+      setMessages(prev => [...prev, { role: 'assistant', content: message, error: true }])
     } finally {
       setLoading(false)
     }
@@ -96,6 +122,25 @@ export default function AIChat() {
 
       {tab === 'chat' ? (
         <>
+          <div className="card px-4 py-3 mb-4 flex items-center gap-3">
+            <BookOpen className="w-5 h-5 text-primary-600" />
+            <label htmlFor="rag-course" className="text-sm font-medium text-gray-700 whitespace-nowrap">检索课程</label>
+            <select
+              id="rag-course"
+              aria-label="检索课程"
+              className="input max-w-md"
+              value={courseId}
+              onChange={event => setCourseId(event.target.value)}
+              disabled={courseLoading || loading}>
+              <option value="">{courseLoading ? '正在加载课程...' : '请选择课程'}</option>
+              {courses.map(course => (
+                <option key={course.id} value={course.id}>{course.courseName}</option>
+              ))}
+            </select>
+            {!courseLoading && courses.length === 0 && (
+              <span className="text-xs text-amber-600">当前账号暂无可访问课程</span>
+            )}
+          </div>
           {/* Messages */}
           <div className="flex-1 overflow-y-auto card p-4 space-y-4 mb-4">
             {messages.map((msg, i) => (
@@ -118,6 +163,28 @@ export default function AIChat() {
                     ) : (
                       <div className="markdown-body text-sm">
                         <ReactMarkdown>{msg.content}</ReactMarkdown>
+                        {msg.retrievalMode && msg.retrievalMode !== 'agent' && (
+                          <div className="mt-3 pt-3 border-t border-gray-200">
+                            <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
+                              msg.retrievalMode === 'hybrid'
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : 'bg-amber-100 text-amber-700'
+                            }`}>
+                              {msg.retrievalMode === 'hybrid' ? '向量 + 关键词混合检索' : '关键词降级检索'}
+                            </span>
+                            {msg.sources?.length > 0 && (
+                              <div className="mt-2 space-y-2" aria-label="回答来源">
+                                {msg.sources.map((source, sourceIndex) => (
+                                  <div key={`${source.documentId}-${source.chunkId}`}
+                                    className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600">
+                                    <span className="font-semibold text-gray-800">[{sourceIndex + 1}] {source.documentTitle}</span>
+                                    <span className="ml-2">分块 {source.chunkIndex + 1}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -146,8 +213,9 @@ export default function AIChat() {
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
-              disabled={loading} />
-            <button onClick={handleSend} disabled={loading || !input.trim()} className="btn-primary px-6">
+              disabled={loading || !courseId} />
+            <button aria-label="发送问题" onClick={handleSend}
+              disabled={loading || !input.trim() || !courseId} className="btn-primary px-6">
               <Send className="w-5 h-5" />
             </button>
           </div>
