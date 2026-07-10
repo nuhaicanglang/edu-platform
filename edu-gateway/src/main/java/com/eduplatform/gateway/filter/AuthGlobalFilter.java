@@ -46,7 +46,6 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
             "/api/auth/login",
             "/api/auth/register",
             "/api/auth/captcha",
-            "/api/system/files/**",
             "/doc.html",
             "/webjars/**",
             "/v3/api-docs/**",

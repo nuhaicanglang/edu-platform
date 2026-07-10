@@ -1,8 +1,8 @@
 package com.eduplatform.system.service;
 
 import com.eduplatform.common.exception.BusinessException;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -10,7 +10,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -25,10 +24,10 @@ import java.util.UUID;
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class FileUploadService {
 
-    @Value("${file.upload.path:C:/edu-uploads}")
-    private String uploadBasePath;
+    private final FilePathResolver filePathResolver;
 
     /**
      * 上传文件到本地磁盘
@@ -48,7 +47,7 @@ public class FileUploadService {
                     ? original.substring(original.lastIndexOf(".")) : "";
             String newFilename = UUID.randomUUID().toString().replace("-", "") + ext;
 
-            Path dirPath = Paths.get(uploadBasePath, category, dateDir);
+            Path dirPath = filePathResolver.resolve(category + "/" + dateDir);
             Files.createDirectories(dirPath);
             Path filePath = dirPath.resolve(newFilename);
 
@@ -72,10 +71,10 @@ public class FileUploadService {
 
     /** 根据相对路径获取绝对路径 */
     public Path getAbsolutePath(String relativePath) {
-        return Paths.get(uploadBasePath, relativePath);
+        return filePathResolver.resolve(relativePath);
     }
 
     public String getUploadBasePath() {
-        return uploadBasePath;
+        return filePathResolver.getUploadRoot().toString();
     }
 }

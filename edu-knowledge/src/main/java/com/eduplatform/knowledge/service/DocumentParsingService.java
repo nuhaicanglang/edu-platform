@@ -96,6 +96,9 @@ public class DocumentParsingService {
      * 将文本内容分割为知识块（自定义参数）
      */
     public List<String> splitToChunks(String text, int chunkSize, int overlap) {
+        if (chunkSize <= 0 || overlap < 0 || overlap >= chunkSize) {
+            throw new IllegalArgumentException("分块参数必须满足 chunkSize > overlap >= 0");
+        }
         List<String> chunks = new ArrayList<>();
         if (text == null || text.isEmpty()) {
             return chunks;
@@ -142,6 +145,10 @@ public class DocumentParsingService {
         while (start < text.length()) {
             int end = Math.min(start + chunkSize, text.length());
             chunks.add(text.substring(start, end).trim());
+            // 已覆盖文本尾部时必须退出，否则减去 overlap 后会重复最后一段。
+            if (end == text.length()) {
+                break;
+            }
             start = end - overlap;
         }
         return chunks;
