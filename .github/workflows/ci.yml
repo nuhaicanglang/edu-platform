@@ -49,7 +49,7 @@ jobs:
       - name: Scan tracked credentials
         shell: bash
         run: |
-          if git grep -n -E 'eyJ[A-Za-z0-9_-]+\.eyJ|BEGIN .*PRIVATE KEY|sk-[A-Za-z0-9_-]{16,}' -- ':!docs/**'; then
+          if git grep -n -E 'eyJ[A-Za-z0-9_-]+\.eyJ|BEGIN .*PRIVATE KEY|sk-[A-Za-z0-9_-]{16,}' -- ':!docs/**' ':!.github/workflows/ci.yml'; then
             echo "Tracked credential-like value found"
             exit 1
           fi
