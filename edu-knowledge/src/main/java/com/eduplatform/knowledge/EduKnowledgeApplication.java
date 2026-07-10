@@ -7,6 +7,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 import org.springframework.context.annotation.ComponentScan;
 import com.eduplatform.knowledge.config.RagProperties;
+import com.eduplatform.knowledge.config.RagSearchProperties;
 
 /**
  * edu-knowledge 知识库服务启动类
@@ -16,7 +17,7 @@ import com.eduplatform.knowledge.config.RagProperties;
  * </p>
  */
 @SpringBootApplication
-@EnableConfigurationProperties(RagProperties.class)
+@EnableConfigurationProperties({RagProperties.class, RagSearchProperties.class})
 @EnableDiscoveryClient
 @ComponentScan(basePackages = {"com.eduplatform"})
 @MapperScan("com.eduplatform.knowledge.mapper")

@@ -57,6 +57,13 @@ rag:
     read-timeout: ${OLLAMA_READ_TIMEOUT:120s}
     batch-size: ${OLLAMA_BATCH_SIZE:16}
     keep-alive: ${OLLAMA_KEEP_ALIVE:30m}
+  search:
+    base-url: ${ES_URIS:http://127.0.0.1:9200}
+    physical-index: ${RAG_PHYSICAL_INDEX:knowledge-chunks-v1}
+    alias: ${RAG_INDEX_ALIAS:knowledge-chunks}
+    candidate-count: ${RAG_CANDIDATE_COUNT:20}
+    top-k: ${RAG_TOP_K:5}
+    rrf-constant: ${RAG_RRF_CONSTANT:60}
 
 logging:
   level:
