@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "codex/**"]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      MYSQL_ROOT_PASSWORD: ci-root-password
+      MYSQL_PWD: ci-mysql-password
+      REDIS_PWD: ci-redis-password
+      JWT_SECRET: ci-only-jwt-secret-at-least-32-characters
+      DEEPSEEK_API_KEY: placeholder
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: edu-frontend/package-lock.json
+
+      - name: Backend tests
+        run: mvn --batch-mode test
+
+      - name: Frontend install
+        working-directory: edu-frontend
+        run: npm ci
+
+      - name: Frontend tests and build
+        working-directory: edu-frontend
+        run: |
+          npm test
+          npm run build
+          npm audit --omit=dev
+
+      - name: Validate Compose
+        run: docker compose config --quiet
+
+      - name: Scan tracked credentials
+        shell: bash
+        run: |
+          if git grep -n -E 'eyJ[A-Za-z0-9_-]+\.eyJ|BEGIN .*PRIVATE KEY|sk-[A-Za-z0-9_-]{16,}' -- ':!docs/**'; then
+            echo "Tracked credential-like value found"
+            exit 1
+          fi
