@@ -212,6 +212,11 @@ CREATE TABLE knowledge_document (
     status VARCHAR(32) NOT NULL DEFAULT 'pending' COMMENT '状态: pending/parsing/completed/failed',
     upload_user_id BIGINT DEFAULT NULL COMMENT '上传用户ID',
     chunk_count INT DEFAULT 0 COMMENT '分块数量',
+    index_status VARCHAR(32) NOT NULL DEFAULT 'pending' COMMENT '向量索引状态: pending/processing/ready/failed',
+    index_error VARCHAR(1000) DEFAULT NULL COMMENT '最近一次索引错误摘要',
+    embedding_model VARCHAR(128) DEFAULT NULL COMMENT '向量模型名称',
+    embedding_dimension INT DEFAULT NULL COMMENT '向量维度',
+    indexed_at DATETIME DEFAULT NULL COMMENT '最近成功索引时间',
     create_by VARCHAR(64) DEFAULT '' COMMENT '创建者',
     update_by VARCHAR(64) DEFAULT '' COMMENT '更新者',
     remark VARCHAR(500) DEFAULT '' COMMENT '备注',
@@ -220,7 +225,8 @@ CREATE TABLE knowledge_document (
     update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (id),
     KEY idx_course_id (course_id),
-    KEY idx_course_status (course_id, status, deleted)
+    KEY idx_course_status (course_id, status, deleted),
+    KEY idx_index_status (index_status, deleted)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='知识库文档表';
 
 -- ============================================

@@ -12,6 +12,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -28,6 +30,8 @@ public class KnowledgeBaseService {
     private final KnowledgeDocumentMapper documentMapper;
     private final KnowledgeChunkMapper chunkMapper;
     private final DocumentParsingService parsingService;
+    private final KnowledgeIndexingService indexingService;
+    private final com.eduplatform.knowledge.search.KnowledgeVectorIndex vectorIndex;
 
     /**
      * 上传并解析文档到知识库
@@ -58,6 +62,7 @@ public class KnowledgeBaseService {
             List<String> chunks = parsingService.splitToChunks(text);
             doc.setChunkCount(chunks.size());
             doc.setStatus("completed");
+            doc.setIndexStatus("pending");
             documentMapper.updateById(doc);
 
             // 保存分块
@@ -71,6 +76,7 @@ public class KnowledgeBaseService {
             }
 
             log.info("文档解析完成: {}, 共{}个分块", doc.getTitle(), chunks.size());
+            runAfterCommit(() -> indexingService.indexDocument(doc.getId()));
             return doc;
         } catch (IOException e) {
             log.error("文档上传解析失败: {}", e.getMessage(), e);
@@ -108,6 +114,13 @@ public class KnowledgeBaseService {
         documentMapper.deleteById(documentId);
         chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunk>()
                 .eq(KnowledgeChunk::getDocumentId, documentId));
+        runAfterCommit(() -> {
+            try {
+                vectorIndex.deleteByDocumentId(documentId);
+            } catch (Exception e) {
+                log.error("删除 Elasticsearch 文档投影失败 documentId={}: {}", documentId, e.getMessage());
+            }
+        });
     }
 
     /**
@@ -152,5 +165,18 @@ public class KnowledgeBaseService {
         if (filename == null) return "unknown";
         int idx = filename.lastIndexOf('.');
         return idx >= 0 ? filename.substring(idx + 1) : "unknown";
+    }
+
+    private void runAfterCommit(Runnable task) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            task.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                task.run();
+            }
+        });
     }
 }

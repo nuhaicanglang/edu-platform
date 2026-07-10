@@ -5,6 +5,8 @@ import com.eduplatform.common.core.domain.BaseEntity;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+import java.time.LocalDateTime;
+
 /**
  * 知识库文档实体
  */
@@ -33,4 +35,14 @@ public class KnowledgeDocument extends BaseEntity {
     private Long uploadUserId;
     /** 分块数量 */
     private Integer chunkCount;
+    /** 向量索引状态（pending/processing/ready/failed） */
+    private String indexStatus;
+    /** 最近一次索引错误摘要 */
+    private String indexError;
+    /** 生成向量所用模型 */
+    private String embeddingModel;
+    /** 向量维度 */
+    private Integer embeddingDimension;
+    /** 最近成功完成索引的时间 */
+    private LocalDateTime indexedAt;
 }
