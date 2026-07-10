@@ -5,6 +5,7 @@ import com.eduplatform.common.core.domain.R;
 import com.eduplatform.system.domain.entity.ClassGroup;
 import com.eduplatform.system.domain.entity.ClassStudent;
 import com.eduplatform.system.service.ClassGroupService;
+import com.eduplatform.system.security.ResourceAuthorizationService;
 import com.eduplatform.common.annotation.Log;
 import com.eduplatform.common.annotation.RequireRole;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +27,7 @@ import java.util.Map;
 public class ClassGroupController {
 
     private final ClassGroupService classGroupService;
+    private final ResourceAuthorizationService authorizationService;
 
     /** 分页查询班级（支持按课程ID、教师ID过滤） */
     @GetMapping("/page")
@@ -39,7 +41,10 @@ public class ClassGroupController {
 
     /** 根据 ID 查询班级详情（带 Redis 互斥锁缓存） */
     @GetMapping("/{id}")
-    public R<ClassGroup> getById(@PathVariable Long id) {
+    public R<ClassGroup> getById(@PathVariable Long id,
+                                 @RequestHeader("X-User-Id") Long userId,
+                                 @RequestHeader("X-User-Role") String role) {
+        authorizationService.requireClassAccess(id, userId, role);
         return R.ok(classGroupService.getById(id));
     }
 
@@ -47,7 +52,10 @@ public class ClassGroupController {
     @Log(module = "班级管理", value = "创建班级")
     @RequireRole({"teacher", "admin"})
     @PostMapping
-    public R<Void> create(@RequestBody ClassGroup classGroup, @RequestHeader("X-User-Id") Long userId) {
+    public R<Void> create(@RequestBody ClassGroup classGroup,
+                          @RequestHeader("X-User-Id") Long userId,
+                          @RequestHeader("X-User-Role") String role) {
+        authorizationService.requireCourseManager(classGroup.getCourseId(), userId, role);
         classGroup.setTeacherId(userId);
         classGroupService.create(classGroup);
         return R.ok();
@@ -57,7 +65,13 @@ public class ClassGroupController {
     @Log(module = "班级管理", value = "更新班级")
     @RequireRole({"teacher", "admin"})
     @PutMapping
-    public R<Void> update(@RequestBody ClassGroup classGroup) {
+    public R<Void> update(@RequestBody ClassGroup classGroup,
+                          @RequestHeader("X-User-Id") Long userId,
+                          @RequestHeader("X-User-Role") String role) {
+        authorizationService.requireClassManager(classGroup.getId(), userId, role);
+        ClassGroup existing = classGroupService.getById(classGroup.getId());
+        classGroup.setTeacherId(existing.getTeacherId());
+        classGroup.setCourseId(existing.getCourseId());
         classGroupService.update(classGroup);
         return R.ok();
     }
@@ -66,7 +80,10 @@ public class ClassGroupController {
     @Log(module = "班级管理", value = "删除班级")
     @RequireRole({"teacher", "admin"})
     @DeleteMapping("/{id}")
-    public R<Void> delete(@PathVariable Long id) {
+    public R<Void> delete(@PathVariable Long id,
+                          @RequestHeader("X-User-Id") Long userId,
+                          @RequestHeader("X-User-Role") String role) {
+        authorizationService.requireClassManager(id, userId, role);
         classGroupService.delete(id);
         return R.ok();
     }
@@ -75,7 +92,10 @@ public class ClassGroupController {
     @Log(module = "班级管理", value = "添加学生")
     @RequireRole({"teacher", "admin"})
     @PostMapping("/{classId}/student/{studentId}")
-    public R<Void> addStudent(@PathVariable Long classId, @PathVariable Long studentId) {
+    public R<Void> addStudent(@PathVariable Long classId, @PathVariable Long studentId,
+                              @RequestHeader("X-User-Id") Long userId,
+                              @RequestHeader("X-User-Role") String role) {
+        authorizationService.requireClassManager(classId, userId, role);
         classGroupService.addStudent(classId, studentId);
         return R.ok();
     }
@@ -84,14 +104,20 @@ public class ClassGroupController {
     @Log(module = "班级管理", value = "移除学生")
     @RequireRole({"teacher", "admin"})
     @DeleteMapping("/{classId}/student/{studentId}")
-    public R<Void> removeStudent(@PathVariable Long classId, @PathVariable Long studentId) {
+    public R<Void> removeStudent(@PathVariable Long classId, @PathVariable Long studentId,
+                                 @RequestHeader("X-User-Id") Long userId,
+                                 @RequestHeader("X-User-Role") String role) {
+        authorizationService.requireClassManager(classId, userId, role);
         classGroupService.removeStudent(classId, studentId);
         return R.ok();
     }
 
     /** 查询班级学生列表（包含学号和姓名） */
     @GetMapping("/{classId}/students")
-    public R<List<ClassStudent>> getStudents(@PathVariable Long classId) {
+    public R<List<ClassStudent>> getStudents(@PathVariable Long classId,
+                                             @RequestHeader("X-User-Id") Long userId,
+                                             @RequestHeader("X-User-Role") String role) {
+        authorizationService.requireClassAccess(classId, userId, role);
         return R.ok(classGroupService.getStudents(classId));
     }
 
@@ -99,7 +125,10 @@ public class ClassGroupController {
     @GetMapping("/{classId}/available-students")
     public R<List<Map<String, Object>>> searchAvailableStudents(
             @PathVariable Long classId,
-            @RequestParam(value = "keyword", defaultValue = "") String keyword) {
+            @RequestParam(value = "keyword", defaultValue = "") String keyword,
+            @RequestHeader("X-User-Id") Long userId,
+            @RequestHeader("X-User-Role") String role) {
+        authorizationService.requireClassManager(classId, userId, role);
         return R.ok(classGroupService.searchAvailableStudents(classId, keyword));
     }
 

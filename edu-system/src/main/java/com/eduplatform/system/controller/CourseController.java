@@ -7,6 +7,7 @@ import com.eduplatform.system.domain.entity.ClassGroup;
 import com.eduplatform.system.service.ClassGroupService;
 import com.eduplatform.system.service.CourseService;
 import com.eduplatform.system.service.LearningRecordService;
+import com.eduplatform.system.security.ResourceAuthorizationService;
 import com.eduplatform.common.annotation.Log;
 import com.eduplatform.common.annotation.RequireRole;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +32,7 @@ public class CourseController {
     private final CourseService courseService;
     private final ClassGroupService classGroupService;
     private final LearningRecordService learningRecordService;
+    private final ResourceAuthorizationService authorizationService;
 
     /** 分页查询课程（支持按课程名称、教师ID过滤） */
     @GetMapping("/page")
@@ -45,11 +47,11 @@ public class CourseController {
     /** 根据 ID 查询课程详情（带 Redis 缓存） */
     @GetMapping("/{id}")
     public R<Course> getById(@PathVariable Long id,
-                             @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+                             @RequestHeader("X-User-Id") Long userId,
+                             @RequestHeader("X-User-Role") String role) {
+        authorizationService.requireCourseAccess(id, userId, role);
         Course course = courseService.getById(id);
-        if (userId != null) {
-            learningRecordService.recordView(userId, id, "浏览课程: " + (course != null ? course.getCourseName() : id));
-        }
+        learningRecordService.recordView(userId, id, "浏览课程: " + course.getCourseName());
         return R.ok(course);
     }
 
@@ -86,7 +88,12 @@ public class CourseController {
     @Log(module = "课程管理", value = "更新课程")
     @RequireRole({"teacher", "admin"})
     @PutMapping
-    public R<Void> update(@RequestBody Course course) {
+    public R<Void> update(@RequestBody Course course,
+                          @RequestHeader("X-User-Id") Long userId,
+                          @RequestHeader("X-User-Role") String role) {
+        authorizationService.requireCourseManager(course.getId(), userId, role);
+        Course existing = courseService.getById(course.getId());
+        course.setTeacherId(existing.getTeacherId());
         courseService.update(course);
         return R.ok();
     }
@@ -95,7 +102,10 @@ public class CourseController {
     @Log(module = "课程管理", value = "删除课程")
     @RequireRole({"teacher", "admin"})
     @DeleteMapping("/{id}")
-    public R<Void> delete(@PathVariable Long id) {
+    public R<Void> delete(@PathVariable Long id,
+                          @RequestHeader("X-User-Id") Long userId,
+                          @RequestHeader("X-User-Role") String role) {
+        authorizationService.requireCourseManager(id, userId, role);
         courseService.delete(id);
         return R.ok();
     }

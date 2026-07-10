@@ -7,6 +7,7 @@ import com.eduplatform.system.domain.entity.AssignmentSubmission;
 import com.eduplatform.system.service.AssignmentService;
 import com.eduplatform.system.service.FileUploadService;
 import com.eduplatform.system.service.LearningRecordService;
+import com.eduplatform.system.security.ResourceAuthorizationService;
 import com.eduplatform.common.annotation.Log;
 import com.eduplatform.common.annotation.RequireRole;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +32,7 @@ public class AssignmentController {
     private final AssignmentService assignmentService;
     private final FileUploadService fileUploadService;
     private final LearningRecordService learningRecordService;
+    private final ResourceAuthorizationService authorizationService;
 
     /** 分页查询作业（支持按课程ID、班级ID过滤） */
     @GetMapping("/page")
@@ -44,7 +46,10 @@ public class AssignmentController {
 
     /** 根据 ID 查询作业详情 */
     @GetMapping("/{id}")
-    public R<Assignment> getById(@PathVariable Long id) {
+    public R<Assignment> getById(@PathVariable Long id,
+                                 @RequestHeader("X-User-Id") Long userId,
+                                 @RequestHeader("X-User-Role") String role) {
+        authorizationService.requireAssignmentAccess(id, userId, role);
         return R.ok(assignmentService.getById(id));
     }
 
@@ -52,7 +57,11 @@ public class AssignmentController {
     @Log(module = "作业管理", value = "创建作业")
     @RequireRole({"teacher", "admin"})
     @PostMapping
-    public R<Void> create(@RequestBody Assignment assignment, @RequestHeader("X-User-Id") Long userId) {
+    public R<Void> create(@RequestBody Assignment assignment,
+                          @RequestHeader("X-User-Id") Long userId,
+                          @RequestHeader("X-User-Role") String role) {
+        authorizationService.requireAssignmentCreationAccess(
+                assignment.getCourseId(), assignment.getClassId(), userId, role);
         assignment.setTeacherId(userId);
         assignmentService.create(assignment);
         return R.ok();
@@ -72,7 +81,10 @@ public class AssignmentController {
             @RequestParam(value = "status", defaultValue = "published") String status,
             @RequestParam(value = "aiGradingEnabled", defaultValue = "true") Boolean aiGradingEnabled,
             @RequestParam(value = "file", required = false) MultipartFile file,
-            @RequestHeader("X-User-Id") Long userId) {
+            @RequestHeader("X-User-Id") Long userId,
+            @RequestHeader("X-User-Role") String role) {
+
+        authorizationService.requireAssignmentCreationAccess(courseId, classId, userId, role);
 
         Assignment assignment = new Assignment();
         assignment.setTitle(title);
@@ -99,7 +111,15 @@ public class AssignmentController {
     @Log(module = "作业管理", value = "更新作业")
     @RequireRole({"teacher", "admin"})
     @PutMapping
-    public R<Void> update(@RequestBody Assignment assignment) {
+    public R<Void> update(@RequestBody Assignment assignment,
+                          @RequestHeader("X-User-Id") Long userId,
+                          @RequestHeader("X-User-Role") String role) {
+        authorizationService.requireAssignmentManager(assignment.getId(), userId, role);
+        Assignment existing = assignmentService.getById(assignment.getId());
+        // 更新普通字段时不可借机转移作业所属课程、班级或教师。
+        assignment.setTeacherId(existing.getTeacherId());
+        assignment.setCourseId(existing.getCourseId());
+        assignment.setClassId(existing.getClassId());
         assignmentService.update(assignment);
         return R.ok();
     }
@@ -108,7 +128,10 @@ public class AssignmentController {
     @Log(module = "作业管理", value = "删除作业")
     @RequireRole({"teacher", "admin"})
     @DeleteMapping("/{id}")
-    public R<Void> delete(@PathVariable Long id) {
+    public R<Void> delete(@PathVariable Long id,
+                          @RequestHeader("X-User-Id") Long userId,
+                          @RequestHeader("X-User-Role") String role) {
+        authorizationService.requireAssignmentManager(id, userId, role);
         assignmentService.delete(id);
         return R.ok();
     }
@@ -117,7 +140,10 @@ public class AssignmentController {
     @Log(module = "作业管理", value = "发布作业")
     @RequireRole({"teacher", "admin"})
     @PostMapping("/{id}/publish")
-    public R<Void> publish(@PathVariable Long id) {
+    public R<Void> publish(@PathVariable Long id,
+                           @RequestHeader("X-User-Id") Long userId,
+                           @RequestHeader("X-User-Role") String role) {
+        authorizationService.requireAssignmentManager(id, userId, role);
         assignmentService.publish(id);
         return R.ok();
     }
@@ -126,11 +152,14 @@ public class AssignmentController {
 
     /** 学生提交作业（支持文本 + 文件上传，重复提交会覆盖） */
     @Log(module = "作业提交", value = "学生提交作业")
+    @RequireRole("student")
     @PostMapping("/submit")
     public R<Void> submit(@RequestParam("assignmentId") Long assignmentId,
                           @RequestParam(value = "content", required = false) String content,
                           @RequestParam(value = "file", required = false) MultipartFile file,
-                          @RequestHeader("X-User-Id") Long userId) {
+                          @RequestHeader("X-User-Id") Long userId,
+                          @RequestHeader("X-User-Role") String role) {
+        authorizationService.requireAssignmentAccess(assignmentId, userId, role);
         AssignmentSubmission submission = new AssignmentSubmission();
         submission.setAssignmentId(assignmentId);
         submission.setStudentId(userId);
@@ -148,26 +177,39 @@ public class AssignmentController {
     }
 
     /** 分页查询某作业的提交记录 */
+    @RequireRole({"teacher", "admin"})
     @GetMapping("/{assignmentId}/submissions")
     public R<PageResult<AssignmentSubmission>> pageSubmissions(
             @PathVariable Long assignmentId,
             @RequestParam(value = "pageNum", defaultValue = "1") int pageNum,
-            @RequestParam(value = "pageSize", defaultValue = "10") int pageSize) {
+            @RequestParam(value = "pageSize", defaultValue = "10") int pageSize,
+            @RequestHeader("X-User-Id") Long userId,
+            @RequestHeader("X-User-Role") String role) {
+        authorizationService.requireAssignmentManager(assignmentId, userId, role);
         return R.ok(assignmentService.pageSubmissions(pageNum, pageSize, assignmentId));
     }
 
     /** 获取作业下全部提交（含学生姓名） */
+    @RequireRole({"teacher", "admin"})
     @GetMapping("/{assignmentId}/all-submissions")
-    public R<List<AssignmentSubmission>> listAllSubmissions(@PathVariable Long assignmentId) {
+    public R<List<AssignmentSubmission>> listAllSubmissions(
+            @PathVariable Long assignmentId,
+            @RequestHeader("X-User-Id") Long userId,
+            @RequestHeader("X-User-Role") String role) {
+        authorizationService.requireAssignmentManager(assignmentId, userId, role);
         return R.ok(assignmentService.listSubmissionsWithStudentName(assignmentId));
     }
 
     /**
      * 触发 AI 批改（异步）：立即返回 status=grading，前端轮询 /submission/{id}/grading-status
      */
+    @RequireRole({"teacher", "admin"})
     @PostMapping("/{assignmentId}/ai-grade/{submissionId}")
     public R<AssignmentSubmission> aiGrade(@PathVariable Long assignmentId,
-                                           @PathVariable Long submissionId) {
+                                           @PathVariable Long submissionId,
+                                           @RequestHeader("X-User-Id") Long userId,
+                                           @RequestHeader("X-User-Role") String role) {
+        authorizationService.requireGradingAccess(assignmentId, submissionId, userId, role);
         return R.ok(assignmentService.aiGradeSubmission(assignmentId, submissionId));
     }
 
@@ -175,20 +217,30 @@ public class AssignmentController {
      * 轮询批改状态（前端每3秒调一次，直到 status=completed/failed）
      */
     @GetMapping("/submission/{submissionId}/grading-status")
-    public R<AssignmentSubmission> gradingStatus(@PathVariable Long submissionId) {
+    public R<AssignmentSubmission> gradingStatus(
+            @PathVariable Long submissionId,
+            @RequestHeader("X-User-Id") Long userId,
+            @RequestHeader("X-User-Role") String role) {
+        authorizationService.requireSubmissionAccess(submissionId, userId, role);
         return R.ok(assignmentService.getGradingStatus(submissionId));
     }
 
     /** 查询单个提交详情 */
     @GetMapping("/submission/{submissionId}")
-    public R<AssignmentSubmission> getSubmission(@PathVariable Long submissionId) {
+    public R<AssignmentSubmission> getSubmission(
+            @PathVariable Long submissionId,
+            @RequestHeader("X-User-Id") Long userId,
+            @RequestHeader("X-User-Role") String role) {
+        authorizationService.requireSubmissionAccess(submissionId, userId, role);
         return R.ok(assignmentService.getSubmission(submissionId));
     }
 
     /** 学生查询自己的提交记录 */
     @GetMapping("/{assignmentId}/my-submission")
     public R<AssignmentSubmission> mySubmission(@PathVariable Long assignmentId,
-                                                @RequestHeader("X-User-Id") Long userId) {
+                                                @RequestHeader("X-User-Id") Long userId,
+                                                @RequestHeader("X-User-Role") String role) {
+        authorizationService.requireAssignmentAccess(assignmentId, userId, role);
         return R.ok(assignmentService.getStudentSubmission(assignmentId, userId));
     }
 

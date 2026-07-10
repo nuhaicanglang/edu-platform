@@ -92,6 +92,10 @@ public class AssignmentService {
      */
     @Transactional
     public void submit(AssignmentSubmission submission) {
+        Assignment assignment = getById(submission.getAssignmentId());
+        if (!"published".equals(assignment.getStatus())) {
+            throw new BusinessException(400, "作业尚未发布或已关闭，不能提交");
+        }
         submission.setSubmitTime(LocalDateTime.now());
         submission.setGradingStatus("submitted");
 
@@ -197,6 +201,9 @@ public class AssignmentService {
     public AssignmentSubmission aiGradeSubmission(Long assignmentId, Long submissionId) {
         AssignmentSubmission submission = getSubmission(submissionId);
         if (submission == null) throw new BusinessException("提交记录不存在");
+        if (!assignmentId.equals(submission.getAssignmentId())) {
+            throw new BusinessException(400, "提交记录不属于该作业");
+        }
 
         // 立即标记为批改中，持久化后返回给前端
         submission.setGradingStatus("grading");
